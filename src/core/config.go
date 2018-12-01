@@ -113,6 +113,7 @@ func ReadConfigFiles(filenames []string, profile string) (*Configuration, error)
 	defaultPath(&config.Go.BuildIDTool, config.Please.Location, "go_buildid_replacer")
 	defaultPath(&config.Go.TestTool, config.Please.Location, "please_go_test")
 	defaultPath(&config.Go.FilterTool, config.Please.Location, "please_go_filter")
+	defaultPath(&config.Go.ImportCfg, config.Please.Location, "please_go_importcfg")
 	defaultPath(&config.Python.PexTool, config.Please.Location, "please_pex")
 	defaultPath(&config.Java.JavacWorker, config.Please.Location, "javac_worker")
 	defaultPath(&config.Java.JarCatTool, config.Please.Location, "jarcat")
@@ -375,6 +376,7 @@ type Configuration struct {
 		ImportPath    string `help:"Sets the default Go import path at the root of this repository.\nFor example, in the Please repo, we might set it to github.com/thought-machine/please to allow imports from that package within the repo." var:"GO_IMPORT_PATH"`
 		CgoCCTool     string `help:"Sets the location of CC while building cgo_library and cgo_test rules. Defaults to gcc" var:"CGO_CC_TOOL"`
 		FilterTool    string `help:"Sets the location of the please_go_filter tool that is used to filter source files against build constraints." var:"GO_FILTER_TOOL"`
+		ImportCfg     string `help:"Yep, needs help" var:"GO_IMPORTCFG"`
 		DefaultStatic bool   `help:"Sets Go binaries to default to static linking. Note that enabling this may have negative consequences for some code, including Go's DNS lookup code in the net module." var:"GO_DEFAULT_STATIC"`
 	} `help:"Please has built-in support for compiling Go, and of course is written in Go itself.\nSee the config subfields or the Go rules themselves for more information.\n\nNote that Please is a bit more flexible than Go about directory layout - for example, it is possible to have multiple packages in a directory, but it's not a good idea to push this too far since Go's directory layout is inextricably linked with its import paths."`
 	Python struct {

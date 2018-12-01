@@ -1,0 +1,42 @@
+#!/bin/bash
+
+set -eo pipefail
+
+aname() {
+    echo "$(basename "$1").a"
+}
+
+packagefile() {
+    local pkg="$1"
+    [ "$pkg" == "unsafe" ] && return
+    local dota="$(aname "$pkg")"
+    if grep -Fxq "$pkg" go.stdlibs; then
+        echo "packagefile $pkg=$(go list -f '{{.Target}}' $pkg)"
+    elif echo "$pkg" | grep -q "^$GO_IMPORT_PATH"; then
+        echo "packagefile $pkg=${pkg##$GO_IMPORT_PATH/}/$dota"
+    else
+        echo "packagefile $pkg=$PKG_DIR/pkg/${GOOS}_${GOARCH}/$pkg/$dota"
+    fi
+}
+
+case "$1" in
+    compile)
+        echo "${GO_IMPORT_PATH:?}"
+        go list std > go.stdlibs
+
+        for pkg in $(go list -f '{{join .Imports "\n"}}' "./$PKG_DIR"); do
+            packagefile "$pkg"
+        done > importcfg
+
+        for pkg in $(go list -f '{{join .Deps "\n"}}' "./$PKG_DIR"); do
+            packagefile "$pkg"
+        done > importcfg.link
+        echo "packagefile $GO_IMPORT_PATH/$PKG=$PKG/$(aname "$PKG")" >> importcfg.link
+        ;;
+    link)
+        find -name importcfg.link | xargs cat | sort -u > importcfg.link
+        ;;
+    *)
+        echo "ERROR: invalid function '$1'" >&2; exit 1;
+        ;;
+esac

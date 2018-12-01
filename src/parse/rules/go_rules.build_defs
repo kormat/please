@@ -6,11 +6,12 @@ rules to Go packages.
 
 _GOPATH = ' '.join(['-I %s -I %s/pkg/%s_%s' % (p, p, CONFIG.OS, CONFIG.ARCH) for p in CONFIG.GOPATH.split(':')])
 # This links all the .a files up one level. This is necessary for some Go tools to find them.
-_LINK_PKGS_CMD = ' '.join([
-    'for FN in `find . -name "*.a" | sort`; do ',
-    'DN=${FN%/*}; BN=${FN##*/}; if [ "${DN##*/}" == "${BN%.a}" ]; then ',
-    'ln -s $TMP_DIR/$FN ${DN%/*}; fi; done'
-])
+_LINK_PKGS_CMD = '$TOOLS_GO_IMPORTCFG' 
+#_LINK_PKGS_CMD = ' '.join([
+#    'for FN in `find . -name "*.a" | sort`; do ',
+#    'DN=${FN%/*}; BN=${FN##*/}; if [ "${DN##*/}" == "${BN%.a}" ]; then ',
+#    'ln -s $TMP_DIR/$FN ${DN%/*}; fi; done'
+#])
 
 
 def go_library(name:str, srcs:list, asm_srcs:list=None, hdrs:list=None, out:str=None, deps:list=[],
@@ -103,7 +104,7 @@ def go_library(name:str, srcs:list, asm_srcs:list=None, hdrs:list=None, out:str=
         test_only=test_only,
     )
 
-    tools = { 'go': [CONFIG.GO_TOOL] }
+    tools = { 'go': [CONFIG.GO_TOOL], 'go_importcfg': [CONFIG.GO_IMPORTCFG] }
     if filter_srcs:
         tools['filter'] = [CONFIG.GO_FILTER_TOOL]
 
@@ -111,8 +112,8 @@ def go_library(name:str, srcs:list, asm_srcs:list=None, hdrs:list=None, out:str=
         name=name,
         srcs=srcs,
         deps=deps + [src_rule],
-        outs=[out],
-        cmd=_go_library_cmds(complete=complete, all_srcs=_all_srcs, cover=cover, filter_srcs=filter_srcs),
+        outs=[out, "importcfg", "importcfg.link"],
+        cmd=_go_library_cmds(out, complete=complete, all_srcs=_all_srcs, cover=cover, filter_srcs=filter_srcs),
         visibility=visibility,
         building_description="Compiling...",
         requires=['go', 'go_src'] if _all_srcs else ['go'],
@@ -288,6 +289,7 @@ def go_binary(name:str, srcs:list=[], asm_srcs:list=[], out:str=None, deps:list=
         _link_extra = False,
     )
     cmds, tools = _go_binary_cmds(static=static)
+    tools['go_importcfg'] = [CONFIG.GO_IMPORTCFG]
     return build_rule(
         name=name,
         srcs=[lib],
@@ -686,15 +688,18 @@ def _replace_test_package(name, output, static):
                     set_command(lib, k, f'mv -f $PKG_DIR/{new_name}.a $PKG_DIR/{pkg_name}.a && {v}')
 
 
-def _go_library_cmds(complete=True, all_srcs=False, cover=True, filter_srcs=True):
+def _go_library_cmds(out, complete=True, all_srcs=False, cover=True, filter_srcs=True):
     """Returns the commands to run for building a Go library."""
     filter_cmd = 'export SRCS="$(${TOOLS_FILTER} ${SRCS})"; ' if filter_srcs else ''
     # Invokes the Go compiler.
     complete_flag = '-complete ' if complete else ''
-    compile_cmd = '$TOOLS_GO tool compile -trimpath $TMP_DIR %s%s -pack -o $OUT ' % (complete_flag, _GOPATH)
+    compile_cmd = '$TOOLS_GO tool compile -trimpath $TMP_DIR %s -pack -o %s -importcfg importcfg ' % (complete_flag, out)
     # Annotates files for coverage.
     cover_cmd = 'for SRC in $SRCS; do BN=$(basename $SRC); go tool cover -mode=set -var=GoCover_${BN//[.-]/_} $SRC > _tmp.go && mv -f _tmp.go $SRC; done'
-    prefix = ('export SRCS="$PKG_DIR/*.go"; ' + _LINK_PKGS_CMD) if all_srcs else _LINK_PKGS_CMD
+    prefix = 'export GO_IMPORT_PATH=%s; ' % CONFIG.GO_IMPORT_PATH
+    if all_srcs:
+        prefix += 'export SRCS="$PKG_DIR/*.go"; '
+    prefix += "%s compile" % _LINK_PKGS_CMD
     prefix += _go_import_path_cmd(CONFIG.GO_IMPORT_PATH)
     cmds = {
         'dbg': f'{prefix}; {filter_cmd}{compile_cmd} -N -l $SRCS',
@@ -707,8 +712,9 @@ def _go_library_cmds(complete=True, all_srcs=False, cover=True, filter_srcs=True
 
 def _go_binary_cmds(static=False, ldflags='', pkg_config=''):
     """Returns the commands to run for linking a Go binary."""
-    _link_cmd = '$TOOLS_GO tool link -tmpdir $TMP_DIR -extld $TOOLS_LD %s -L . -o ${OUT} ' % _GOPATH.replace('-I ', '-L ')
-    prefix = _LINK_PKGS_CMD + _go_import_path_cmd(CONFIG.GO_IMPORT_PATH)
+    _link_cmd = '$TOOLS_GO tool link -tmpdir $TMP_DIR -extld $TOOLS_LD -importcfg importcfg.link -o ${OUT} '
+    prefix = 'export GO_IMPORT_PATH=%s; ' % CONFIG.GO_IMPORT_PATH
+    prefix += "%s link %s" % (_LINK_PKGS_CMD, _go_import_path_cmd(CONFIG.GO_IMPORT_PATH))
 
     if static:
         flags = f'-linkmode external -extldflags "-static {ldflags} {pkg_config}"'
@@ -717,9 +723,10 @@ def _go_binary_cmds(static=False, ldflags='', pkg_config=''):
     else:
         flags = ''
 
+    src = '${SRCS%% *}'
     return {
-        'dbg': f'{prefix} && {_link_cmd} {flags} $SRCS',
-        'opt': f'{prefix} && {_link_cmd} {flags} -s -w $SRCS',
+        'dbg': f'{prefix} && {_link_cmd} {flags} {src}',
+        'opt': f'{prefix} && {_link_cmd} {flags} -s -w {src}',
     }, {
         'go': [CONFIG.GO_TOOL],
         'ld': [CONFIG.LD_TOOL if CONFIG.LINK_WITH_LD_TOOL else CONFIG.CC_TOOL],

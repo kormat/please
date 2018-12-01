@@ -13,6 +13,7 @@ filegroup(
         "//tools/java:javac_worker",
         "//tools/java:junit_runner",
         "//tools/please_go_filter",
+        "//tools/please_go_importcfg",
         "//tools/please_go_test",
         "//tools/please_maven",
         "//tools/please_pex",
